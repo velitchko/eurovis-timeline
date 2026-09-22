@@ -219,29 +219,21 @@
       }
       .axis-months {
         position: relative;
-        display: flex;
-        justify-content: space-between;
-        padding: 14px 18px 14px 0;
-      }
-      .axis-months::before {
-        position: absolute;
-        top: 0;
-        bottom: 0;
-        left: 0;
-        right: 18px;
-        background: repeating-linear-gradient(
-          90deg,
-          transparent 0,
-          transparent calc(12.5% - 1px),
-          #edf1f5 calc(12.5% - 1px),
-          #edf1f5 12.5%
-        );
-        content: "";
-        pointer-events: none;
+        min-width: 0;
+        margin: 0 12px;
+        height: 48px;
       }
       .axis-months span {
         position: relative;
         z-index: 1;
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        display: flex;
+        align-items: center;
+        padding-left: 12px;
+        border-left: 1px solid #edf1f5;
+        white-space: nowrap;
       }
       .lanes {
         position: relative;
@@ -275,6 +267,35 @@
         transform: none;
       }
       .today-marker.is-after span {
+        right: 0;
+        left: auto;
+        transform: none;
+      }
+      .conference-marker {
+        position: absolute;
+        z-index: 2;
+        top: 0;
+        bottom: 0;
+        width: 2px;
+        border-left: 2px solid #008a78;
+        pointer-events: none;
+      }
+      .conference-marker span {
+        position: absolute;
+        top: 32px;
+        left: 50%;
+        padding: 3px 6px;
+        border-radius: 999px;
+        color: #fff;
+        background: #008a78;
+        box-shadow: 0 1px 3px rgba(26, 45, 63, 0.2);
+        font-size: 0.64rem;
+        font-weight: 850;
+        line-height: 1;
+        white-space: nowrap;
+        transform: translateX(-50%);
+      }
+      .conference-marker.is-at-end span {
         right: 0;
         left: auto;
         transform: none;
@@ -318,13 +339,15 @@
         position: relative;
         min-width: 0;
         margin: 0 12px;
-        background: repeating-linear-gradient(
-          90deg,
-          transparent 0,
-          transparent calc(12.5% - 1px),
-          #f0f3f6 calc(12.5% - 1px),
-          #f0f3f6 12.5%
-        );
+      }
+      .month-divider {
+        position: absolute;
+        z-index: 0;
+        top: 0;
+        bottom: 0;
+        width: 1px;
+        background: #f0f3f6;
+        pointer-events: none;
       }
       .plot::before {
         position: absolute;
@@ -668,6 +691,9 @@
         .today-marker {
           display: none;
         }
+        .conference-marker {
+          display: none;
+        }
       }
       @media (prefers-reduced-motion: reduce) {
         *,
@@ -734,19 +760,17 @@
         <div
           class="timeline"
           data-start="2026-10-01"
-          data-end="2027-05-31"
-          aria-describedby="today-description"
+          data-end="2027-06-30"
+          data-conference-start="2027-06-14"
+          aria-describedby="today-description conference-description"
         >
           <div class="axis">
             <div class="axis-title">Track</div>
-            <div class="axis-months" aria-hidden="true">
-              <span>Oct ’26</span><span>Nov</span><span>Dec</span
-              ><span>Jan ’27</span><span>Feb</span><span>Mar</span
-              ><span>Apr</span><span>May</span>
-            </div>
+            <div class="axis-months" aria-hidden="true"></div>
           </div>
           <div class="lanes">
             <div class="today-marker" aria-hidden="true"><span>Today</span></div>
+            <div class="conference-marker" aria-hidden="true"><span>Conference starts</span></div>
             <div class="lane" data-track="full" data-first-submission="2025-11-26" style="--track: #e32017">
               <div class="lane-label">
                 Full Papers<small>Reference · 2026</small>
@@ -1094,6 +1118,9 @@
           </div>
         </div>
         <p class="sr-only" id="today-description"></p>
+        <p class="sr-only" id="conference-description">
+          Conference starts 14 June 2027.
+        </p>
         <div class="details" id="details" aria-live="polite">
           <span class="details-dot" aria-hidden="true"></span>
           <p>
@@ -1359,7 +1386,9 @@
       const timeline = document.querySelector(".timeline");
       const lanesContainer = document.querySelector(".lanes");
       const todayMarker = document.querySelector(".today-marker");
+      const conferenceMarker = document.querySelector(".conference-marker");
       const todayDescription = document.querySelector("#today-description");
+      const axisMonths = document.querySelector(".axis-months");
       const monthNumbers = {
         Jan: 0, Feb: 1, Mar: 2, Apr: 3, May: 4, Jun: 5,
         Jul: 6, Aug: 7, Sep: 8, Oct: 9, Nov: 10, Dec: 11,
@@ -1380,6 +1409,45 @@
           : null;
       };
       const isPublished = (event) => event.dataset.status.startsWith("Published");
+      const timelineStart = () => new Date(`${timeline.dataset.start}T00:00:00`);
+      const timelineEnd = () => new Date(`${timeline.dataset.end}T23:59:59`);
+      const datePosition = (date) =>
+        ((date - timelineStart()) / (timelineEnd() - timelineStart())) * 100;
+      const monthLabel = (date, index) =>
+        new Intl.DateTimeFormat("en", {
+          month: "short",
+          year: index === 0 || date.getMonth() === 0 ? "2-digit" : undefined,
+        })
+          .format(date)
+          .replace(" ", " ’");
+      const buildDateScale = () => {
+        const start = timelineStart();
+        const end = timelineEnd();
+        const monthStarts = [];
+        for (
+          let date = new Date(start.getFullYear(), start.getMonth(), 1);
+          date <= end;
+          date = new Date(date.getFullYear(), date.getMonth() + 1, 1)
+        ) monthStarts.push(new Date(date));
+
+        axisMonths.replaceChildren(
+          ...monthStarts.map((date, index) => {
+            const label = document.createElement("span");
+            label.style.left = `${datePosition(date)}%`;
+            label.textContent = monthLabel(date, index);
+            return label;
+          }),
+        );
+        document.querySelectorAll(".plot").forEach((plot) => {
+          plot.querySelectorAll(".month-divider").forEach((divider) => divider.remove());
+          monthStarts.forEach((date) => {
+            const divider = document.createElement("span");
+            divider.className = "month-divider";
+            divider.style.left = `${datePosition(date)}%`;
+            plot.prepend(divider);
+          });
+        });
+      };
       const projectMilestones = () => {
         events.forEach((event) => {
           const sourceDate = event.dataset.date;
@@ -1420,6 +1488,7 @@
       };
 
       projectMilestones();
+      buildDateScale();
 
       const sortByFirstSubmission = (items, parent) => {
         [...items]
@@ -1433,8 +1502,8 @@
       sortByFirstSubmission(cards, document.querySelector(".reference-grid"));
 
       const positionTodayMarker = () => {
-        const start = new Date(`${timeline.dataset.start}T00:00:00`);
-        const end = new Date(`${timeline.dataset.end}T23:59:59`);
+        const start = timelineStart();
+        const end = timelineEnd();
         const now = new Date();
         const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
         const rawPosition = ((today - start) / (end - start)) * 100;
@@ -1450,8 +1519,7 @@
         todayMarker.style.left = `${plotBounds.left - lanesBounds.left + (plotBounds.width * position) / 100}px`;
         todayMarker.classList.toggle("is-before", rangeState === "before");
         todayMarker.classList.toggle("is-after", rangeState === "after");
-        todayMarker.querySelector("span").textContent =
-          rangeState === "within" ? "Today" : `Today · ${rangeState} timeline`;
+        todayMarker.querySelector("span").textContent = "Today";
         todayDescription.textContent =
           rangeState === "within"
             ? `Today is ${currentDate}, marked on the date scale.`
@@ -1461,6 +1529,11 @@
           const planned = new Date(`${event.dataset.plannedDate}T00:00:00`);
           event.classList.toggle("is-past", planned < today);
         });
+
+        const conferenceStart = new Date(`${timeline.dataset.conferenceStart}T00:00:00`);
+        const conferencePosition = Math.min(100, Math.max(0, datePosition(conferenceStart)));
+        conferenceMarker.style.left = `${plotBounds.left - lanesBounds.left + (plotBounds.width * conferencePosition) / 100}px`;
+        conferenceMarker.classList.toggle("is-at-end", conferencePosition >= 96);
       };
 
       positionTodayMarker();
